@@ -406,7 +406,22 @@ def analytics_plot(
     seasonal_smooth = detrended.rolling(window=max(3, window // 2), center=True).mean()
     residuals = detrended - seasonal_smooth
 
-    n_exog = len(exog_cols) if exog_cols else 0
+    # Limit exogenous subplots to top 8 by absolute correlation with target
+    MAX_EXOG_SUBPLOTS = 8
+    display_exog: List[str] = []
+    if exog_cols:
+        corrs = {}
+        for col in exog_cols:
+            if col in df.columns and df[col].nunique() > 1:
+                try:
+                    corrs[col] = abs(float(df[col].corr(y)))
+                except Exception:
+                    corrs[col] = 0.0
+        # Sort by correlation descending, take top N
+        sorted_cols = sorted(corrs.keys(), key=lambda c: corrs[c], reverse=True)
+        display_exog = sorted_cols[:MAX_EXOG_SUBPLOTS]
+
+    n_exog = len(display_exog)
     n_rows = 4 + n_exog
 
     subplot_titles = [
@@ -414,14 +429,17 @@ def analytics_plot(
         "Seasonal / Cyclical Component",
         "Residuals",
         "Autocorrelation (ACF)",
-    ] + [f"Feature: {col}" for col in (exog_cols or [])]
+    ] + [f"Feature: {col} (|r|={abs(float(df[col].corr(y))):.3f})" if col in df.columns else f"Feature: {col}" for col in display_exog]
+
+    # Compute safe vertical spacing
+    v_spacing = min(0.04, 0.9 / max(n_rows - 1, 1))
 
     fig = make_subplots(
         rows=n_rows,
         cols=1,
         shared_xaxes=False,
         subplot_titles=subplot_titles,
-        vertical_spacing=0.04,
+        vertical_spacing=v_spacing,
     )
 
     # Row 1: Observed + Trend
@@ -507,10 +525,10 @@ def analytics_plot(
     fig.add_hline(y=-sig, line_dash="dot", line_color="red", row=4, col=1)
     fig.add_hline(y=0, line_color="gray", row=4, col=1)
 
-    # Exogenous feature rows
-    feat_colors = ["#9467bd", "#8c564b", "#e377c2", "#bcbd22", "#17becf", "#ff9896"]
-    if exog_cols:
-        for i, col in enumerate(exog_cols):
+    # Exogenous feature rows (top N by correlation)
+    feat_colors = ["#9467bd", "#8c564b", "#e377c2", "#bcbd22", "#17becf", "#ff9896", "#aec7e8", "#ffbb78"]
+    if display_exog:
+        for i, col in enumerate(display_exog):
             if col in df.columns:
                 color = feat_colors[i % len(feat_colors)]
                 fig.add_trace(
