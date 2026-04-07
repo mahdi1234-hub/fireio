@@ -11,7 +11,7 @@ from nixtla import NixtlaClient
 
 NIXTLA_API_KEY = os.getenv(
     "NIXTLA_API_KEY",
-    "nixak-9c61a691b619e36d3a10509de0b83d84762b7385fa82ae5baf76dd018ae54648ccf902cb1652397e",
+    "nixak-b3afb58253e4691bd70c96cc51284a003ad77957623003b5425108894802e55c5fad25138ecd4f8a",
 )
 
 
