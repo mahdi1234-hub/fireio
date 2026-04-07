@@ -2,30 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 def forecast_plot(
     historical: pd.DataFrame,
     forecast_df: pd.DataFrame,
-    levels: list[int] | None = None,
+    levels: Optional[List[int]] = None,
     title: str = "TimeGPT Forecast with Confidence Intervals",
-) -> dict[str, Any]:
-    """Return a Plotly figure as JSON-serialisable dict.
-
-    Parameters
-    ----------
-    historical : DataFrame with columns ``ds``, ``y``
-    forecast_df : DataFrame with ``ds``, ``TimeGPT`` and optional
-        ``TimeGPT-lo-XX`` / ``TimeGPT-hi-XX`` columns.
-    levels : confidence-interval percentages used during forecasting.
-    """
+) -> Dict[str, Any]:
+    """Return a Plotly figure as JSON-serialisable dict."""
     fig = go.Figure()
 
-    # Historical series
     fig.add_trace(
         go.Scatter(
             x=historical["ds"].astype(str).tolist(),
@@ -36,7 +28,6 @@ def forecast_plot(
         )
     )
 
-    # Forecast line
     forecast_col = "TimeGPT" if "TimeGPT" in forecast_df.columns else forecast_df.columns[1]
     fig.add_trace(
         go.Scatter(
@@ -48,7 +39,6 @@ def forecast_plot(
         )
     )
 
-    # Confidence bands
     colors = ["rgba(255,127,14,0.15)", "rgba(255,127,14,0.08)", "rgba(255,127,14,0.04)"]
     if levels:
         for idx, lvl in enumerate(sorted(levels)):
@@ -91,7 +81,7 @@ def anomaly_plot(
     df: pd.DataFrame,
     anomaly_df: pd.DataFrame,
     title: str = "Anomaly Detection",
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Plot historical data with anomaly bounds and flagged points."""
     fig = go.Figure()
 
@@ -105,7 +95,6 @@ def anomaly_plot(
         )
     )
 
-    # Bounds from anomaly_df
     if "TimeGPT-hi-99" in anomaly_df.columns:
         hi_col = "TimeGPT-hi-99"
         lo_col = "TimeGPT-lo-99"
@@ -113,7 +102,6 @@ def anomaly_plot(
         hi_col = "TimeGPT-hi-95"
         lo_col = "TimeGPT-lo-95"
     else:
-        # Find any hi/lo columns
         hi_cols = [c for c in anomaly_df.columns if "hi" in c]
         lo_cols = [c for c in anomaly_df.columns if "lo" in c]
         hi_col = hi_cols[0] if hi_cols else None
@@ -141,7 +129,6 @@ def anomaly_plot(
             )
         )
 
-    # Flag anomalies
     if "anomaly" in anomaly_df.columns:
         anom_points = anomaly_df[anomaly_df["anomaly"] == True]
         if not anom_points.empty:
@@ -168,9 +155,9 @@ def anomaly_plot(
 def monitoring_plot(
     historical: pd.DataFrame,
     new_points: pd.DataFrame,
-    alerts: list[dict],
+    alerts: List[Dict],
     title: str = "Real-Time Monitoring",
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Plot historical + new data with alert markers."""
     fig = go.Figure()
 
@@ -219,12 +206,27 @@ def monitoring_plot(
 
 def analytics_plot(
     df: pd.DataFrame,
-    trend: pd.Series | None = None,
+    trend: Optional[pd.Series] = None,
     title: str = "Time Series Analytics",
-) -> dict[str, Any]:
-    """Plot data with optional trend overlay."""
-    fig = go.Figure()
+    exog_cols: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Plot data with trend overlay and optional exogenous feature subplots."""
+    # Determine number of subplots
+    n_exog = len(exog_cols) if exog_cols else 0
+    n_plots = 1 + n_exog
+    subplot_titles = ["Target Variable & Trend"] + (
+        [f"Feature: {col}" for col in exog_cols] if exog_cols else []
+    )
 
+    fig = make_subplots(
+        rows=n_plots,
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=subplot_titles,
+        vertical_spacing=0.06,
+    )
+
+    # Main series
     fig.add_trace(
         go.Scatter(
             x=df["ds"].astype(str).tolist(),
@@ -232,7 +234,9 @@ def analytics_plot(
             mode="lines",
             name="Observed",
             line=dict(color="#1f77b4"),
-        )
+        ),
+        row=1,
+        col=1,
     )
 
     if trend is not None:
@@ -243,14 +247,37 @@ def analytics_plot(
                 mode="lines",
                 name="Trend (rolling mean)",
                 line=dict(color="#d62728", dash="dash"),
-            )
+            ),
+            row=1,
+            col=1,
         )
 
+    # Exogenous feature subplots
+    feature_colors = ["#2ca02c", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22"]
+    if exog_cols:
+        for i, col in enumerate(exog_cols):
+            if col in df.columns:
+                color = feature_colors[i % len(feature_colors)]
+                fig.add_trace(
+                    go.Scatter(
+                        x=df["ds"].astype(str).tolist(),
+                        y=df[col].tolist(),
+                        mode="lines+markers",
+                        name=col,
+                        line=dict(color=color),
+                        marker=dict(size=4),
+                    ),
+                    row=i + 2,
+                    col=1,
+                )
+
+    height = 400 + 200 * n_exog
     fig.update_layout(
         title=title,
-        xaxis_title="Date",
-        yaxis_title="Value",
         template="plotly_white",
         hovermode="x unified",
+        height=height,
     )
+    fig.update_xaxes(title_text="Date", row=n_plots, col=1)
+
     return fig.to_dict()
