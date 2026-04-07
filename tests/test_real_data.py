@@ -104,40 +104,41 @@ def csv_to_api_rows(csv_text: str):
     return rows
 
 
-def replicate_days(base_rows, n_days=4):
-    """Replicate the 1-day pattern across n_days with slight noise to create
-    a realistic multi-day dataset meeting the 144-observation minimum.
+def replicate_to_continuous(base_rows, target_count=200):
+    """Replicate the daily pattern into a continuous 30-min time series.
 
-    Adds small random-ish perturbations (+/- 5%) to features and target
-    to avoid an exact duplicate pattern.
+    Generates exactly target_count rows with perfectly spaced 30-min
+    intervals starting from 2022-01-01 00:00:00.  Cycles through the
+    base data and adds small noise to avoid exact duplicates.
     """
     import random
     random.seed(42)
 
+    n_base = len(base_rows)
+    start = datetime(2022, 1, 1, 0, 0, 0)
     all_rows = []
-    base_dt = datetime(2022, 1, 1, 0, 30, 0)  # first timestamp
 
-    for day in range(n_days):
-        day_offset = timedelta(days=day)
-        for i, row in enumerate(base_rows):
-            orig_dt = datetime.strptime(row["timestamp"], "%Y-%m-%d %H:%M:%S")
-            new_dt = orig_dt + day_offset
-            noise = 1.0 + random.uniform(-0.05, 0.05) * (day > 0)
+    for i in range(target_count):
+        ts = start + timedelta(minutes=30 * i)
+        src = base_rows[i % n_base]
+        cycle = i // n_base  # which repetition
 
-            new_features = {}
-            for k, v in row["features"].items():
-                if isinstance(v, (int, float)):
-                    new_features[k] = round(v * (1.0 + random.uniform(-0.03, 0.03) * (day > 0)), 4)
-                else:
-                    new_features[k] = v
+        noise = 1.0 + random.uniform(-0.05, 0.05) * (cycle > 0)
+        new_features = {}
+        for k, v in src["features"].items():
+            if isinstance(v, (int, float)):
+                new_features[k] = round(v * (1.0 + random.uniform(-0.03, 0.03) * (cycle > 0)), 4)
+            else:
+                new_features[k] = v
 
-            new_val = round(row["value"] * noise if row["value"] != 0 else row["value"] + random.uniform(-0.01, 0.01) * (day > 0), 4)
+        val = src["value"]
+        new_val = round(val * noise if val != 0 else val + random.uniform(-0.01, 0.01) * (cycle > 0), 4)
 
-            all_rows.append({
-                "timestamp": new_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                "value": new_val,
-                "features": new_features,
-            })
+        all_rows.append({
+            "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "value": new_val,
+            "features": new_features,
+        })
     return all_rows
 
 
@@ -152,7 +153,7 @@ def test_forecast(rows):
         "horizon": 12,
         "freq": "30min",
         "level": [80, 95],
-        "model": "timegpt-1-long-horizon",
+        "model": "timegpt-1",
     }
 
     print(f"  Rows: {len(rows)}")
@@ -221,7 +222,7 @@ def test_forecast_chart(rows):
         "horizon": 12,
         "freq": "30min",
         "level": [80, 95],
-        "model": "timegpt-1-long-horizon",
+        "model": "timegpt-1",
     }
     resp = requests.post(f"{API_BASE}/forecast/chart", json=payload, timeout=180)
     print(f"  Status: {resp.status_code}")
@@ -282,8 +283,8 @@ if __name__ == "__main__":
     base_rows = csv_to_api_rows(CSV_RAW)
     print(f"Base rows from CSV: {len(base_rows)} (1 day)")
 
-    print("Replicating to 4 days for 144+ observation minimum...")
-    rows = replicate_days(base_rows, n_days=4)
+    print("Generating continuous 30-min series (200 points) for 144+ minimum...")
+    rows = replicate_to_continuous(base_rows, target_count=200)
     print(f"Total rows: {len(rows)}")
     print(f"Features per row: {len(rows[0]['features'])}")
     print(f"Timestamp range: {rows[0]['timestamp']} -> {rows[-1]['timestamp']}")
